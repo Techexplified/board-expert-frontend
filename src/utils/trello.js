@@ -214,8 +214,17 @@ export function isTrelloConnectorContext() {
   const params = new URLSearchParams(window.location.search)
   if (params.get('view') === 'export') return false
   const inIframe = window.self !== window.top
+  if (!inIframe || !window.TrelloPowerUp) return false
+
   const fromTrello = /trello\.com/i.test(document.referrer || '')
-  return inIframe && fromTrello && Boolean(window.TrelloPowerUp)
+  const ancestorIsTrello =
+    typeof window.location.ancestorOrigins !== 'undefined' &&
+    Array.from(window.location.ancestorOrigins).some((origin) =>
+      /trello\.com/i.test(origin)
+    )
+  const hasTrelloLocale = params.has('locale')
+
+  return fromTrello || ancestorIsTrello || hasTrelloLocale
 }
 
 export function isTrelloModalContext() {
