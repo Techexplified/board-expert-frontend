@@ -18,9 +18,20 @@ export function getFilteredCards(board, selectedListIds, includeArchived) {
   )
 }
 
-export function countSelectedFields({ selectedFields, includeCustomFields, customFieldCount }) {
+export function countSelectedFields({
+  selectedFields,
+  includeCustomFields,
+  customFieldCount,
+  includeCover = false,
+  includeArchived = false,
+}) {
   const baseCount = Object.values(selectedFields).filter(Boolean).length
-  return baseCount + (includeCustomFields ? customFieldCount : 0)
+  return (
+    baseCount +
+    (includeCustomFields ? customFieldCount : 0) +
+    (includeCover ? 1 : 0) +
+    (includeArchived ? 1 : 0)
+  )
 }
 
 function escapeCsvCell(value) {
@@ -31,30 +42,42 @@ function escapeCsvCell(value) {
   return str
 }
 
+function normalizeTextCell(value) {
+  if (!value) return ''
+  return String(value).replace(/\r?\n+/g, ' ').trim()
+}
+
 function formatChecklistCell(card) {
   if (card.checklistTotal === 0 && (!card.checklistItems || card.checklistItems.length === 0)) {
-    return '0/0'
+    return ''
   }
   const summary = `${card.checklistDone}/${card.checklistTotal}`
   if (!card.checklistItems || card.checklistItems.length === 0) {
     return summary
   }
   const itemsText = card.checklistItems
-    .map((item) => `[${item.state === 'complete' ? 'x' : ' '}] ${item.name}`)
-    .join('; ')
+    .map((item) => `${item.state === 'complete' ? '✓' : '○'} ${item.name}`)
+    .join(', ')
   return `${summary} (${itemsText})`
 }
 
 function formatCommentsCell(card) {
   if (card.comments && card.comments.length > 0) {
     return card.comments
-      .map((c) => `${c.author}${c.date ? ` (${c.date})` : ''}: ${c.text}`)
+      .map((c) => `${c.author}${c.date ? ` (${c.date})` : ''}: ${normalizeTextCell(c.text)}`)
       .join(' | ')
   }
-  return card.commentsCount > 0 ? `${card.commentsCount} comment(s)` : ''
+  if (card.commentsCount > 0) {
+    return `${card.commentsCount} ${card.commentsCount === 1 ? 'comment' : 'comments'}`
+  }
+  return ''
 }
 
-function buildRowObject(card, listMap, { selectedFields, includeCustomFields, customFields, includeCover }) {
+function buildRowObject(
+  card,
+  listMap,
+  { selectedFields, includeCustomFields, customFields, includeCover, includeArchived }
+) {
   const row = {}
 
   if (selectedFields.cardName) {
@@ -64,7 +87,7 @@ function buildRowObject(card, listMap, { selectedFields, includeCustomFields, cu
     row['List'] = listMap[card.listId]?.name || 'Unknown'
   }
   if (selectedFields.description) {
-    row['Description'] = card.desc || ''
+    row['Description'] = normalizeTextCell(card.desc)
   }
   if (selectedFields.labels) {
     row['Labels'] = card.labels.map((l) => l.name).join(', ')
@@ -88,10 +111,13 @@ function buildRowObject(card, listMap, { selectedFields, includeCustomFields, cu
     row['Comments'] = formatCommentsCell(card)
   }
   if (selectedFields.attachments) {
-    row['Attachments'] = card.attachments.join('; ')
+    row['Attachments'] = card.attachments.join(' | ')
   }
   if (includeCover) {
     row['Card Cover'] = card.coverUrl || ''
+  }
+  if (includeArchived) {
+    row['Status'] = card.closed ? 'Archived' : 'Active'
   }
   if (includeCustomFields) {
     for (const cf of customFields) {
@@ -131,10 +157,16 @@ function autoFitSheet(rows) {
     worksheet['!cols'] = headers.map((header) => {
       const maxLen = Math.max(
         header.length,
-        ...rows.map((r) => String(r[header] ?? '').length)
+        ...rows.map((r) => {
+          const val = String(r[header] ?? '')
+          return Math.max(...val.split(/\r?\n/).map((line) => line.length))
+        })
       )
-      return { wch: Math.min(Math.max(maxLen + 3, 12), 48) }
+      return { wch: Math.min(Math.max(maxLen + 4, 14), 45) }
     })
+    if (worksheet['!ref']) {
+      worksheet['!autofilter'] = { ref: worksheet['!ref'] }
+    }
   }
   return worksheet
 }
@@ -159,6 +191,7 @@ export function generateExportFiles({
     includeCustomFields,
     customFields: board.customFields || [],
     includeCover,
+    includeArchived,
   }
 
   if (format === 'xlsx') {

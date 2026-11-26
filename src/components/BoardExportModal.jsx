@@ -165,8 +165,10 @@ export default function BoardExportModal({
         selectedFields,
         includeCustomFields,
         customFieldCount: board.customFields?.length || 0,
-      }) + (includeCover ? 1 : 0),
-    [selectedFields, includeCustomFields, board.customFields, includeCover]
+        includeCover,
+        includeArchived,
+      }),
+    [selectedFields, includeCustomFields, board.customFields, includeCover, includeArchived]
   )
 
   const allListsSelected =
@@ -260,25 +262,27 @@ export default function BoardExportModal({
           : 'w-full max-w-[660px] rounded-2xl border border-zinc-200/90 shadow-2xl'
       }`}
     >
-      {/* Modal Header */}
-      <header className="flex items-center justify-between border-b border-zinc-200/80 px-6 py-4">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-7 w-7 items-center justify-center rounded-md text-[#1f6336]">
-            <Download className="h-5 w-5 stroke-[2.2]" />
-          </span>
-          <h2 className="text-[19px] font-bold tracking-tight text-zinc-900">
-            Board Export
-          </h2>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close Board Export"
-          className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 cursor-pointer"
-        >
-          <X className="h-5 w-5" />
-        </button>
-      </header>
+      {/* Modal Header (Trello modal already renders its own outer titlebar) */}
+      {!isTrelloModal && (
+        <header className="flex items-center justify-between border-b border-zinc-200/80 px-6 py-4">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-7 w-7 items-center justify-center rounded-md text-[#1f6336]">
+              <Download className="h-5 w-5 stroke-[2.2]" />
+            </span>
+            <h2 className="text-[19px] font-bold tracking-tight text-zinc-900">
+              Board Export
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close Board Export"
+            className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 cursor-pointer"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </header>
+      )}
 
       {/* Stepper Bar (shown on steps 1–4) */}
       {typeof screen === 'number' && (
@@ -723,29 +727,59 @@ export default function BoardExportModal({
                 <thead>
                   <tr className="bg-[#e6f0e7] text-zinc-900">
                     {selectedFields.cardName && (
-                      <th className="px-3.5 py-2.5 font-semibold">Card Name</th>
+                      <th className="whitespace-nowrap px-3.5 py-2.5 font-semibold">Card Name</th>
                     )}
                     {selectedFields.list && (
-                      <th className="px-3 py-2.5 font-semibold">List</th>
+                      <th className="whitespace-nowrap px-3 py-2.5 font-semibold">List</th>
+                    )}
+                    {selectedFields.description && (
+                      <th className="whitespace-nowrap px-3 py-2.5 font-semibold">Description</th>
                     )}
                     {selectedFields.members && (
-                      <th className="px-3 py-2.5 font-semibold">Members</th>
+                      <th className="whitespace-nowrap px-3 py-2.5 font-semibold">Members</th>
+                    )}
+                    {selectedFields.startDate && (
+                      <th className="whitespace-nowrap px-3 py-2.5 font-semibold">Start Date</th>
                     )}
                     {selectedFields.dueDate && (
-                      <th className="px-3 py-2.5 font-semibold">Due Date</th>
+                      <th className="whitespace-nowrap px-3 py-2.5 font-semibold">Due Date</th>
+                    )}
+                    {selectedFields.completedDate && (
+                      <th className="whitespace-nowrap px-3 py-2.5 font-semibold">Completed</th>
                     )}
                     {selectedFields.labels && (
-                      <th className="px-3 py-2.5 font-semibold">Labels</th>
+                      <th className="whitespace-nowrap px-3 py-2.5 font-semibold">Labels</th>
                     )}
                     {selectedFields.checklist && (
-                      <th className="px-3 py-2.5 font-semibold">Checklist</th>
+                      <th className="whitespace-nowrap px-3 py-2.5 font-semibold">Checklist</th>
                     )}
+                    {selectedFields.comments && (
+                      <th className="whitespace-nowrap px-3 py-2.5 font-semibold">Comments</th>
+                    )}
+                    {selectedFields.attachments && (
+                      <th className="whitespace-nowrap px-3 py-2.5 font-semibold">Attachments</th>
+                    )}
+                    {includeCover && (
+                      <th className="whitespace-nowrap px-3 py-2.5 font-semibold">Card Cover</th>
+                    )}
+                    {includeArchived && (
+                      <th className="whitespace-nowrap px-3 py-2.5 font-semibold">Status</th>
+                    )}
+                    {includeCustomFields &&
+                      (board.customFields || []).map((cf) => (
+                        <th key={cf.id} className="whitespace-nowrap px-3 py-2.5 font-semibold">
+                          {cf.name}
+                        </th>
+                      ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
                   {previewCards.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-sm text-zinc-500">
+                      <td
+                        colSpan={Math.max(1, totalFieldsCount)}
+                        className="px-4 py-8 text-center text-sm text-zinc-500"
+                      >
                         No cards match your current list/filter selection.
                       </td>
                     </tr>
@@ -758,13 +792,18 @@ export default function BoardExportModal({
                       return (
                         <tr key={card.id} className="hover:bg-zinc-50/70">
                           {selectedFields.cardName && (
-                            <td className="px-3.5 py-2.5 font-medium text-zinc-900">
+                            <td className="whitespace-nowrap px-3.5 py-2.5 font-medium text-zinc-900">
                               {card.name}
                             </td>
                           )}
                           {selectedFields.list && (
-                            <td className="px-3 py-2.5 text-zinc-700">
+                            <td className="whitespace-nowrap px-3 py-2.5 text-zinc-700">
                               {listMap[card.listId]?.name || '—'}
+                            </td>
+                          )}
+                          {selectedFields.description && (
+                            <td className="max-w-[200px] truncate px-3 py-2.5 text-zinc-600" title={card.desc}>
+                              {card.desc || '—'}
                             </td>
                           )}
                           {selectedFields.members && (
@@ -787,9 +826,19 @@ export default function BoardExportModal({
                               </div>
                             </td>
                           )}
+                          {selectedFields.startDate && (
+                            <td className="whitespace-nowrap px-3 py-2.5 text-zinc-700">
+                              {formatDisplayDate(card.startDate)}
+                            </td>
+                          )}
                           {selectedFields.dueDate && (
-                            <td className="px-3 py-2.5 whitespace-nowrap text-zinc-700">
+                            <td className="whitespace-nowrap px-3 py-2.5 text-zinc-700">
                               {formatDisplayDate(card.dueDate)}
+                            </td>
+                          )}
+                          {selectedFields.completedDate && (
+                            <td className="whitespace-nowrap px-3 py-2.5 text-zinc-700">
+                              {formatDisplayDate(card.completedDate)}
                             </td>
                           )}
                           {selectedFields.labels && (
@@ -813,19 +862,61 @@ export default function BoardExportModal({
                           )}
                           {selectedFields.checklist && (
                             <td className="px-3 py-2.5">
-                              <div className="flex items-center gap-2">
-                                <span className="w-7 text-xs text-zinc-700">
-                                  {card.checklistDone}/{card.checklistTotal}
-                                </span>
-                                <div className="h-2 w-16 overflow-hidden rounded-full bg-zinc-200">
-                                  <div
-                                    className="h-full rounded-full bg-[#4ca138] transition-all"
-                                    style={{ width: `${pct}%` }}
-                                  />
+                              {card.checklistTotal === 0 ? (
+                                <span className="text-zinc-400">—</span>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <span className="w-7 text-xs text-zinc-700">
+                                    {card.checklistDone}/{card.checklistTotal}
+                                  </span>
+                                  <div className="h-2 w-16 overflow-hidden rounded-full bg-zinc-200">
+                                    <div
+                                      className="h-full rounded-full bg-[#4ca138] transition-all"
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
                                 </div>
-                              </div>
+                              )}
                             </td>
                           )}
+                          {selectedFields.comments && (
+                            <td className="whitespace-nowrap px-3 py-2.5 text-zinc-700">
+                              {card.commentsCount > 0
+                                ? `${card.commentsCount} ${card.commentsCount === 1 ? 'comment' : 'comments'}`
+                                : '—'}
+                            </td>
+                          )}
+                          {selectedFields.attachments && (
+                            <td className="whitespace-nowrap px-3 py-2.5 text-zinc-700">
+                              {card.attachments.length > 0
+                                ? `${card.attachments.length} ${card.attachments.length === 1 ? 'link' : 'links'}`
+                                : '—'}
+                            </td>
+                          )}
+                          {includeCover && (
+                            <td className="max-w-[160px] truncate px-3 py-2.5 text-zinc-700" title={card.coverUrl}>
+                              {card.coverUrl || '—'}
+                            </td>
+                          )}
+                          {includeArchived && (
+                            <td className="whitespace-nowrap px-3 py-2.5">
+                              <span
+                                className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-medium ${
+                                  card.closed
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-emerald-50 text-emerald-700'
+                                }`}
+                              >
+                                {card.closed ? 'Archived' : 'Active'}
+                              </span>
+                            </td>
+                          )}
+                          {includeCustomFields &&
+                            (board.customFields || []).map((cf) => (
+                              <td key={cf.id} className="whitespace-nowrap px-3 py-2.5 text-zinc-700">
+                                {card.customFields?.[cf.name] || '—'}
+                              </td>
+                            ))}
                         </tr>
                       )
                     })

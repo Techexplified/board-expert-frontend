@@ -182,7 +182,7 @@ export function normalizeTrelloBoard(rawBoard, overrideLists, overrideCards) {
         card.cover?.scaled?.[card.cover.scaled.length - 1]?.url ||
         card.cover?.url ||
         coverAttachment?.url ||
-        ''
+        (card.cover?.color ? `Color: ${card.cover.color}` : '')
 
       return {
         id: card.id,
@@ -283,7 +283,7 @@ export function initTrelloPowerUp() {
             t.modal({
               url: './?view=export',
               accentColor: '#1f6336',
-              height: 660,
+              height: 700,
               title: 'Board Export',
             }),
         },
