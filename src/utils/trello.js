@@ -1,5 +1,11 @@
 const LIST_COLORS = ['#a855f7', '#fbbf24', '#60a5fa', '#65d030', '#fb7185', '#2dd4bf']
 
+export const TRELLO_APP_KEY =
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_TRELLO_API_KEY) ||
+  'd6bc9446e0a893fc7cab3fe117c75aa5'
+
+export const TRELLO_APP_NAME = 'Board Export'
+
 const TRELLO_LABEL_STYLES = {
   green: { bg: '#dcfce7', text: '#15803d' },
   green_light: { bg: '#dcfce7', text: '#15803d' },
@@ -233,29 +239,61 @@ export function isTrelloModalContext() {
   return params.get('view') === 'export' && Boolean(window.TrelloPowerUp)
 }
 
+export function buildTrelloAuthorizeUrl(apiKey = TRELLO_APP_KEY) {
+  const origin =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : 'https://board-expert-frontend.vercel.app'
+  const params = new URLSearchParams({
+    expiration: '30days',
+    name: TRELLO_APP_NAME,
+    scope: 'read',
+    response_type: 'token',
+    key: apiKey.trim(),
+    return_url: `${origin}/callback`,
+  })
+  return `https://trello.com/1/authorize?${params.toString()}`
+}
+
+export function extractTrelloCallbackHash() {
+  if (typeof window === 'undefined' || !window.location.hash) return null
+  const rawHash = window.location.hash.replace(/^#/, '')
+  const params = new URLSearchParams(rawHash)
+  const token = params.get('token')
+  const error = params.get('error')
+  if (!token && !error) return null
+  return { token, error }
+}
+
 export function initTrelloPowerUp() {
   if (typeof window === 'undefined' || !window.TrelloPowerUp) return
   const iconUrl = `${window.location.origin}/board-export-icon.svg`
 
-  window.TrelloPowerUp.initialize({
-    'board-buttons': () => [
-      {
-        icon: {
-          dark: iconUrl,
-          light: iconUrl,
+  window.TrelloPowerUp.initialize(
+    {
+      'board-buttons': () => [
+        {
+          icon: {
+            dark: iconUrl,
+            light: iconUrl,
+          },
+          text: 'Board Export',
+          condition: 'always',
+          callback: (t) =>
+            t.modal({
+              url: './?view=export',
+              accentColor: '#1f6336',
+              height: 660,
+              title: 'Board Export',
+            }),
         },
-        text: 'Board Export',
-        condition: 'always',
-        callback: (t) =>
-          t.modal({
-            url: './?view=export',
-            accentColor: '#1f6336',
-            height: 660,
-            title: 'Board Export',
-          }),
-      },
-    ],
-  })
+      ],
+    },
+    {
+      appKey: TRELLO_APP_KEY,
+      appName: TRELLO_APP_NAME,
+    }
+  )
 }
 
 export async function loadTrelloBoardFromPowerUp() {
@@ -263,7 +301,31 @@ export async function loadTrelloBoardFromPowerUp() {
     throw new Error('Not running inside a Trello Power-Up modal.')
   }
 
-  const t = window.TrelloPowerUp.iframe()
+  const t = window.TrelloPowerUp.iframe({
+    appKey: TRELLO_APP_KEY,
+    appName: TRELLO_APP_NAME,
+  })
+
+  try {
+    const restApi = t.getRestApi?.()
+    if (restApi && (await restApi.isAuthorized())) {
+      const [restToken, rawBoardMeta] = await Promise.all([
+        restApi.getToken(),
+        t.board('id'),
+      ])
+      if (restToken && rawBoardMeta?.id) {
+        const fullBoard = await fetchFullTrelloBoard(
+          rawBoardMeta.id,
+          TRELLO_APP_KEY,
+          restToken
+        )
+        return { board: fullBoard, t }
+      }
+    }
+  } catch {
+    // Fall back to Power-Up iframe context API when REST token isn't authorized
+  }
+
   const [rawBoard, rawLists, rawCards] = await Promise.all([
     t.board('all'),
     t.lists('all'),
@@ -292,7 +354,7 @@ export async function fetchUserTrelloBoards(apiKey, token) {
     const text = await res.text()
     throw new Error(
       res.status === 401
-        ? 'Invalid Trello API key or token. Please double-check your credentials.'
+        ? 'Invalid Trello API key or token. Please reconnect with Trello.'
         : `Trello API error (${res.status}): ${text || res.statusText}`
     )
   }

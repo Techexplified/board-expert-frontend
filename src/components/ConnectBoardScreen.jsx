@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Check,
+  ChevronDown,
   Copy,
   Download,
   ExternalLink,
@@ -12,6 +13,9 @@ import {
   Upload,
 } from 'lucide-react'
 import {
+  TRELLO_APP_KEY,
+  buildTrelloAuthorizeUrl,
+  extractTrelloCallbackHash,
   fetchFullTrelloBoard,
   fetchUserTrelloBoards,
   parseTrelloBoardJson,
@@ -22,9 +26,11 @@ const STORAGE_KEY_TOKEN = 'board_export_trello_token'
 
 export default function ConnectBoardScreen({ onBoardLoaded }) {
   const [activeTab, setActiveTab] = useState('api')
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEY_API) || '')
+  const [apiKey, setApiKey] = useState(
+    () => localStorage.getItem(STORAGE_KEY_API) || TRELLO_APP_KEY
+  )
   const [token, setToken] = useState(() => localStorage.getItem(STORAGE_KEY_TOKEN) || '')
-  const [rememberCreds, setRememberCreds] = useState(true)
+  const [showManualCreds, setShowManualCreds] = useState(false)
 
   const [boards, setBoards] = useState([])
   const [loadingBoards, setLoadingBoards] = useState(false)
@@ -35,33 +41,89 @@ export default function ConnectBoardScreen({ onBoardLoaded }) {
 
   const fileInputRef = useRef(null)
   const connectorUrl =
-    typeof window !== 'undefined' ? window.location.origin : 'https://your-app.vercel.app'
-
-  useEffect(() => {
-    if (apiKey && token && boards.length === 0) {
-      handleFetchBoards(apiKey, token, true)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    typeof window !== 'undefined' ? window.location.origin : 'https://board-expert-frontend.vercel.app'
 
   const handleFetchBoards = async (keyOverride, tokenOverride, silent = false) => {
     const k = keyOverride ?? apiKey
     const t = tokenOverride ?? token
+    if (!k?.trim() || !t?.trim()) return
     setError('')
     setLoadingBoards(true)
     try {
       const list = await fetchUserTrelloBoards(k, t)
       setBoards(list)
-      if (rememberCreds) {
-        localStorage.setItem(STORAGE_KEY_API, k.trim())
-        localStorage.setItem(STORAGE_KEY_TOKEN, t.trim())
-      }
+      localStorage.setItem(STORAGE_KEY_API, k.trim())
+      localStorage.setItem(STORAGE_KEY_TOKEN, t.trim())
     } catch (err) {
       if (!silent) {
         setError(err?.message || 'Unable to connect to Trello.')
       }
     } finally {
       setLoadingBoards(false)
+    }
+  }
+
+  // Handle Trello redirect callback in same tab if popup was blocked
+  useEffect(() => {
+    const callbackResult = extractTrelloCallbackHash()
+    if (callbackResult) {
+      window.history.replaceState(null, '', '/')
+      if (callbackResult.error) {
+        setError(`Trello authorization cancelled: ${callbackResult.error}`)
+        return
+      }
+      if (callbackResult.token) {
+        setToken(callbackResult.token)
+        localStorage.setItem(STORAGE_KEY_TOKEN, callbackResult.token)
+        handleFetchBoards(apiKey, callbackResult.token, false)
+        return
+      }
+    }
+
+    if (apiKey && token && boards.length === 0) {
+      handleFetchBoards(apiKey, token, true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Listen for token posted from the Trello authorization popup
+  useEffect(() => {
+    const onMessage = (event) => {
+      if (event.origin !== window.location.origin) return
+      if (event.data?.type === 'TRELLO_AUTH_ERROR') {
+        setError(`Trello authorization cancelled: ${event.data.error}`)
+        return
+      }
+      if (event.data?.type === 'TRELLO_AUTH_TOKEN' && event.data.token) {
+        const nextToken = event.data.token
+        setToken(nextToken)
+        localStorage.setItem(STORAGE_KEY_TOKEN, nextToken)
+        handleFetchBoards(apiKey, nextToken, false)
+      }
+    }
+
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiKey])
+
+  const handleOneClickConnect = () => {
+    setError('')
+    const activeKey = (apiKey || TRELLO_APP_KEY).trim()
+    const authUrl = buildTrelloAuthorizeUrl(activeKey)
+    const width = 600
+    const height = 700
+    const left = window.screenX + Math.max(0, (window.outerWidth - width) / 2)
+    const top = window.screenY + Math.max(0, (window.outerHeight - height) / 2)
+
+    const popup = window.open(
+      authUrl,
+      'trello_board_export_auth',
+      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    )
+
+    if (!popup || popup.closed) {
+      window.location.href = authUrl
     }
   }
 
@@ -78,10 +140,8 @@ export default function ConnectBoardScreen({ onBoardLoaded }) {
     }
   }
 
-  const handleClearCredentials = () => {
-    localStorage.removeItem(STORAGE_KEY_API)
+  const handleDisconnect = () => {
     localStorage.removeItem(STORAGE_KEY_TOKEN)
-    setApiKey('')
     setToken('')
     setBoards([])
     setError('')
@@ -109,15 +169,8 @@ export default function ConnectBoardScreen({ onBoardLoaded }) {
     }
   }
 
-  const authorizeTokenUrl = apiKey.trim()
-    ? `https://trello.com/1/authorize?expiration=1day&name=Board%20Export&scope=read&response_type=token&key=${encodeURIComponent(
-        apiKey.trim()
-      )}`
-    : null
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0b4f6c] via-[#0d627a] to-[#147a74] p-4 sm:p-8">
-      {/* Top Bar */}
       <header className="mx-auto mb-8 flex max-w-4xl items-center justify-between text-white">
         <div className="flex items-center gap-2.5 font-bold">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15">
@@ -131,21 +184,19 @@ export default function ConnectBoardScreen({ onBoardLoaded }) {
       </header>
 
       <main className="mx-auto max-w-2xl overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-2xl">
-        {/* Card Header */}
         <div className="border-b border-zinc-200 px-6 py-5">
           <div className="flex items-center gap-2.5">
             <Download className="h-5 w-5 text-[#1f6336]" />
             <h1 className="text-xl font-bold text-zinc-900">Connect Your Trello Board</h1>
           </div>
           <p className="mt-1 text-sm text-zinc-600">
-            Load a real Trello board via API, upload a Trello board JSON export, or attach this
-            app directly inside Trello as a Power-Up.
+            Authorize with Trello in one click, upload a Trello board JSON export, or use this
+            app inside Trello as a Power-Up.
           </p>
 
-          {/* Tabs */}
           <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-[#eef4ef] p-1">
             {[
-              { id: 'api', label: 'Trello API', icon: KeyRound },
+              { id: 'api', label: 'Trello Account', icon: KeyRound },
               { id: 'json', label: 'Trello JSON', icon: FileJson },
               { id: 'powerup', label: 'Trello Power-Up', icon: Puzzle },
             ].map((tab) => {
@@ -180,98 +231,60 @@ export default function ConnectBoardScreen({ onBoardLoaded }) {
             </div>
           )}
 
-          {/* TAB 1: TRELLO API */}
+          {/* TAB 1: ONE-CLICK TRELLO CONNECT */}
           {activeTab === 'api' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700">
-                    Trello API Key
-                  </label>
-                  <input
-                    type="text"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="Paste your 32-char API key"
-                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-[#1f6336] focus:ring-2 focus:ring-[#1f6336]/15"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700">
-                    Trello Read Token
-                  </label>
-                  <input
-                    type="password"
-                    value={token}
-                    onChange={(e) => setToken(e.target.value)}
-                    placeholder="Paste your Trello token"
-                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-[#1f6336] focus:ring-2 focus:ring-[#1f6336]/15"
-                  />
-                </div>
-              </div>
+              {boards.length === 0 ? (
+                <div className="rounded-xl border border-zinc-200 bg-[#f6faf6] p-5 text-center">
+                  <p className="text-sm font-semibold text-zinc-900">
+                    Authorize Read-Only Access to Your Trello Boards
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-600">
+                    Sign in with Trello to fetch your boards, lists, cards, checklists, comments,
+                    and custom fields directly in your browser.
+                  </p>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-600">
-                <label className="inline-flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={rememberCreds}
-                    onChange={(e) => setRememberCreds(e.target.checked)}
-                    className="h-4 w-4 accent-[#1f6336]"
-                  />
-                  <span>Remember credentials in this browser</span>
-                </label>
-
-                <div className="flex items-center gap-3">
-                  <a
-                    href="https://trello.com/power-ups/admin"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 font-medium text-[#1f6336] hover:underline"
-                  >
-                    <span>Get API Key</span>
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                  {authorizeTokenUrl && (
-                    <a
-                      href={authorizeTokenUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 font-medium text-[#1f6336] hover:underline"
+                  <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+                    <button
+                      type="button"
+                      disabled={loadingBoards}
+                      onClick={handleOneClickConnect}
+                      className="inline-flex items-center gap-2 rounded-lg bg-[#1f6336] px-6 py-2.5 text-sm font-semibold text-white shadow-xs transition hover:bg-[#174d2a] disabled:opacity-50 cursor-pointer"
                     >
-                      <span>Generate Token</span>
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  disabled={loadingBoards}
-                  onClick={() => handleFetchBoards()}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[#1f6336] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#174d2a] disabled:opacity-50 cursor-pointer"
-                >
-                  {loadingBoards && <Loader2 className="h-4 w-4 animate-spin" />}
-                  <span>{boards.length > 0 ? 'Refresh Boards' : 'Fetch My Trello Boards'}</span>
-                </button>
-                {(apiKey || token || boards.length > 0) && (
-                  <button
-                    type="button"
-                    onClick={handleClearCredentials}
-                    className="rounded-lg border border-zinc-300 px-4 py-2.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 cursor-pointer"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-
-              {boards.length > 0 && (
-                <div className="mt-4 overflow-hidden rounded-xl border border-zinc-200">
-                  <div className="bg-[#e6f0e7] px-4 py-2.5 text-xs font-semibold text-zinc-900">
-                    Select a Trello Board ({boards.length})
+                      {loadingBoards ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <ExternalLink className="h-4 w-4" />
+                      )}
+                      <span>Connect with Trello</span>
+                    </button>
                   </div>
-                  <div className="max-h-60 divide-y divide-zinc-100 overflow-y-auto">
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-xl border border-zinc-200">
+                  <div className="flex items-center justify-between bg-[#e6f0e7] px-4 py-2.5">
+                    <span className="text-xs font-semibold text-zinc-900">
+                      Your Trello Boards ({boards.length})
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        disabled={loadingBoards}
+                        onClick={() => handleFetchBoards()}
+                        className="text-xs font-semibold text-[#1f6336] hover:underline cursor-pointer"
+                      >
+                        {loadingBoards ? 'Refreshing...' : 'Refresh'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDisconnect}
+                        className="text-xs font-medium text-zinc-600 hover:text-zinc-900 cursor-pointer"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-64 divide-y divide-zinc-100 overflow-y-auto">
                     {boards.map((b) => (
                       <button
                         key={b.id}
@@ -298,6 +311,61 @@ export default function ConnectBoardScreen({ onBoardLoaded }) {
                   </div>
                 </div>
               )}
+
+              {/* Collapsible Manual API Key / Token fallback */}
+              <div className="border-t border-zinc-100 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowManualCreds((v) => !v)}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-800 cursor-pointer"
+                >
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 transition-transform ${
+                      showManualCreds ? 'rotate-180' : ''
+                    }`}
+                  />
+                  <span>Advanced: Enter custom API key or token manually</span>
+                </button>
+
+                {showManualCreds && (
+                  <div className="mt-3 space-y-3 rounded-xl border border-zinc-200 bg-zinc-50/70 p-4">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-xs font-semibold text-zinc-700">
+                          Trello API Key
+                        </label>
+                        <input
+                          type="text"
+                          value={apiKey}
+                          onChange={(e) => setApiKey(e.target.value)}
+                          placeholder="32-char Trello API key"
+                          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 outline-none focus:border-[#1f6336]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-zinc-700">
+                          Trello Read Token
+                        </label>
+                        <input
+                          type="password"
+                          value={token}
+                          onChange={(e) => setToken(e.target.value)}
+                          placeholder="Paste Trello token"
+                          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 outline-none focus:border-[#1f6336]"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={loadingBoards}
+                      onClick={() => handleFetchBoards()}
+                      className="rounded-lg bg-[#1f6336] px-4 py-2 text-xs font-semibold text-white hover:bg-[#174d2a] disabled:opacity-50 cursor-pointer"
+                    >
+                      {loadingBoards ? 'Connecting...' : 'Load Boards with Token'}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -348,8 +416,7 @@ export default function ConnectBoardScreen({ onBoardLoaded }) {
             <div className="space-y-4 text-sm text-zinc-700">
               <p>
                 When opened inside Trello as a Power-Up, <strong>Board Export</strong> reads
-                your live board directly through the Trello Power-Up SDK without needing API
-                keys.
+                your live board directly through the Trello Power-Up SDK.
               </p>
 
               <div className="rounded-xl border border-zinc-200 bg-[#f6faf6] p-4">
@@ -380,7 +447,7 @@ export default function ConnectBoardScreen({ onBoardLoaded }) {
 
               <ol className="list-decimal space-y-2 pl-5 text-xs leading-relaxed text-zinc-700">
                 <li>
-                  Deploy this folder to Vercel and open{' '}
+                  Open{' '}
                   <a
                     href="https://trello.com/power-ups/admin"
                     target="_blank"
@@ -392,8 +459,8 @@ export default function ConnectBoardScreen({ onBoardLoaded }) {
                   .
                 </li>
                 <li>
-                  Create a new Power-Up and set the <strong>Iframe connector URL</strong> to your
-                  Vercel deployment URL.
+                  Set the <strong>Iframe connector URL</strong> to{' '}
+                  <code className="rounded bg-zinc-100 px-1 py-0.5">{connectorUrl}/</code>.
                 </li>
                 <li>
                   Under <strong>Capabilities</strong>, enable <strong>board-buttons</strong>.
