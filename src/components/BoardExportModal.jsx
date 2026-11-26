@@ -262,27 +262,25 @@ export default function BoardExportModal({
           : 'w-full max-w-[660px] rounded-2xl border border-zinc-200/90 shadow-2xl'
       }`}
     >
-      {/* Modal Header (Trello modal already renders its own outer titlebar) */}
-      {!isTrelloModal && (
-        <header className="flex items-center justify-between border-b border-zinc-200/80 px-6 py-4">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-7 w-7 items-center justify-center rounded-md text-[#1f6336]">
-              <Download className="h-5 w-5 stroke-[2.2]" />
-            </span>
-            <h2 className="text-[19px] font-bold tracking-tight text-zinc-900">
-              Board Export
-            </h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close Board Export"
-            className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 cursor-pointer"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </header>
-      )}
+      {/* Modal Header */}
+      <header className="flex items-center justify-between border-b border-zinc-200/80 px-6 py-3.5">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-7 w-7 items-center justify-center rounded-md text-[#1f6336]">
+            <Download className="h-5 w-5 stroke-[2.2]" />
+          </span>
+          <h2 className="text-[19px] font-bold tracking-tight text-zinc-900">
+            Board Export
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close Board Export"
+          className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 cursor-pointer"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </header>
 
       {/* Stepper Bar (shown on steps 1–4) */}
       {typeof screen === 'number' && (

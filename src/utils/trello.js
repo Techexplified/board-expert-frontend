@@ -282,9 +282,7 @@ export function initTrelloPowerUp() {
           callback: (t) =>
             t.modal({
               url: './?view=export',
-              accentColor: '#1f6336',
-              height: 700,
-              title: 'Board Export',
+              height: 720,
             }),
         },
       ],
