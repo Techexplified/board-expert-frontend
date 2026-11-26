@@ -267,7 +267,7 @@ export function extractTrelloCallbackHash() {
 
 export function initTrelloPowerUp() {
   if (typeof window === 'undefined' || !window.TrelloPowerUp) return
-  const iconUrl = `${window.location.origin}/board-export-icon.svg`
+  const iconUrl = `${window.location.origin}/icon.png`
 
   window.TrelloPowerUp.initialize(
     {

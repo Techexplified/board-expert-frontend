@@ -2,7 +2,7 @@
   "name": "Board Export",
   "details": "Export your Trello board cards, lists, dates, checklists, and custom fields to CSV or Excel (.xlsx).",
   "icon": {
-    "url": "./board-export-icon.svg"
+    "url": "./icon.png"
   },
   "author": "Board Expert",
   "capabilities": [
